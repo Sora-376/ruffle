@@ -7,6 +7,7 @@ mod domain;
 mod font;
 mod handle;
 mod movie;
+mod watcher;
 
 use crate::context::{RenderContext, UpdateContext};
 use crate::debug_ui::avm1::Avm1ObjectWindow;
@@ -20,6 +21,7 @@ use crate::debug_ui::handle::{
     MovieHandle,
 };
 use crate::debug_ui::movie::{MovieListWindow, MovieWindow};
+use crate::debug_ui::watcher::WatcherWindow;
 use crate::display_object::TDisplayObject;
 use crate::prelude::DisplayObject;
 use gc_arena::DynamicRootSet;
@@ -40,6 +42,7 @@ pub struct DebugUi {
     items_to_save: Vec<ItemToSave>,
     movie_list: Option<MovieListWindow>,
     domain_list: Option<DomainListWindow>,
+    watcher: Option<WatcherWindow>,
     display_object_search: Option<DisplayObjectSearchWindow>,
 }
 
@@ -56,6 +59,7 @@ pub enum Message {
     TrackTopLevelMovie,
     ShowKnownMovies,
     ShowDomains,
+    ShowWatcher,
     SaveFile(ItemToSave),
     SearchForDisplayObject,
     TrackRootMovieClip,
@@ -112,6 +116,12 @@ impl DebugUi {
             self.domain_list = Some(domain_list);
         }
 
+        if let Some(mut watcher) = self.watcher.take()
+            && watcher.show(egui_ctx/* , context, &mut messages*/)
+        {
+            self.watcher = Some(watcher);
+        }
+
         if let Some(mut search) = self.display_object_search.take()
             && search.show(egui_ctx, context, &mut messages, movie_offset)
         {
@@ -158,6 +168,9 @@ impl DebugUi {
                 Message::ShowDomains => {
                     self.domain_list = Some(Default::default());
                 }
+                Message::ShowWatcher => {
+                    self.watcher = Some(Default::default());
+                }
                 Message::SearchForDisplayObject => {
                     self.display_object_search = Some(Default::default());
                 }
@@ -185,6 +198,7 @@ impl DebugUi {
             || self.movie_list.is_some()
             || self.domain_list.is_some()
             || self.display_object_search.is_some()
+            || self.watcher.is_some()
     }
 
     pub fn should_suspend_player(&self) -> bool {

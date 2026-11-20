@@ -177,6 +177,13 @@ impl MenuBar {
                                 player.debug_ui().queue_message(DebugMessage::SearchForDisplayObject);
                             }
                         }
+                        ui.separator();
+                        if Button::new("Watcher").ui(ui).clicked() {
+                            ui.close();
+                            if let Some(player) = &mut player {
+                                player.debug_ui().queue_message(DebugMessage::ShowWatcher);
+                            }
+                        }
                     });
                 });
                 ui.menu_button(text(locale, "help-menu"), |ui| {
