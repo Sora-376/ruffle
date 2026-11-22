@@ -117,7 +117,7 @@ impl DebugUi {
         }
 
         if let Some(mut watcher) = self.watcher.take()
-            && watcher.show(egui_ctx/* , context, &mut messages*/)
+            && watcher.show(egui_ctx)
         {
             self.watcher = Some(watcher);
         }

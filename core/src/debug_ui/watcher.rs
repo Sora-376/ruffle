@@ -1,7 +1,7 @@
 // use crate::context::UpdateContext;
 // use crate::debug_ui::Message;
 
-use egui::{Window};
+use egui::{TextEdit, Ui, Window};
 
 #[derive(Debug, Eq, PartialEq, Hash, Default, Copy, Clone)]
 pub enum Panel {
@@ -13,7 +13,7 @@ pub enum Panel {
 #[derive(Debug, Default)]
 pub struct WatcherWindow {
     open_panel: Panel,
-    // search: String,
+    search: String,
 }
 
 impl WatcherWindow {
@@ -37,7 +37,7 @@ impl WatcherWindow {
 
                 match self.open_panel {
                     Panel::Favorite => self.show_favorite(),
-                    Panel::All => self.show_all(),
+                    Panel::All => self.show_all(ui),
                 }
             });
 
@@ -45,5 +45,13 @@ impl WatcherWindow {
     }
 
     fn show_favorite(&mut self) {}
-    fn show_all(&mut self) {}
+    fn show_all(
+        &mut self,
+        ui: &mut Ui,
+        // context: &mut UpdateContext,
+    ) {
+        TextEdit::singleline(&mut self.search)
+        .hint_text("Search for member or variable")
+        .show(ui);
+    }
 }
