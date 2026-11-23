@@ -3,6 +3,7 @@ use crate::context::UpdateContext;
 use crate::display_object::TDisplayObject;
 
 use egui::{Grid, TextEdit, Ui, Window};
+use ruffle_common::avm_string::AvmString;
 
 #[derive(Debug, Eq, PartialEq, Hash, Default, Copy, Clone)]
 enum Panel {
@@ -11,7 +12,7 @@ enum Panel {
     All,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum WatcherScope {
     Root,
     Global,
@@ -24,11 +25,39 @@ struct WatcherItem {
     value_display: String,
 }
 
+#[derive(Debug, PartialEq)]
+struct FavoriteEntry {
+    scope: WatcherScope,
+    name: String,
+    edit_buffer: String,
+    is_frozen: bool,
+    frozen_value: Option<ParsedValue>,
+}
+
+impl FavoriteEntry {
+    fn new(scope: WatcherScope, name: String, initial_display: String) -> Self {
+        Self {
+            scope,
+            name,
+            edit_buffer: initial_display,
+            is_frozen: false,
+            frozen_value: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ParsedValue {
+    Number(f64),
+    Bool(bool),
+    String(String),
+}
+
 #[derive(Debug, Default)]
 pub struct WatcherWindow {
     open_panel: Panel,
     search: String,
-    // favorites: Vec<WatcherItem>,
+    favorites: Vec<FavoriteEntry>,
     all_cache: Vec<WatcherItem>,
     last_scan: Option<std::time::Instant>,
 }
@@ -49,7 +78,7 @@ impl WatcherWindow {
                 ui.separator();
 
                 match self.open_panel {
-                    Panel::Favorite => self.show_favorite(),
+                    Panel::Favorite => self.show_favorite(ui, context),
                     Panel::All => self.show_all(ui, context),
                 }
             });
@@ -57,7 +86,108 @@ impl WatcherWindow {
         keep_open
     }
 
-    fn show_favorite(&mut self) {}
+    fn show_favorite(&mut self, ui: &mut Ui, context: &mut UpdateContext) {
+        let mut activation =
+            Activation::from_stub(context, ActivationIdentifier::root("[Watcher]"));
+        let mut pending_remove: Option<usize> = None;
+
+        Grid::new(ui.id().with("watcher_favorite_grid"))
+            .num_columns(4)
+            .show(ui, |ui| {
+                for (i, entry) in self.favorites.iter_mut().enumerate() {
+                    let name = AvmString::new_utf8(activation.gc(), entry.name.as_str());
+
+                    let owner = match entry.scope {
+                        WatcherScope::Global => Some(activation.global_object()),
+                        WatcherScope::Root => activation
+                            .context
+                            .stage
+                            .root_clip()
+                            .and_then(|c| c.object1()),
+                    };
+
+                    let Some(owner) = owner else {
+                        ui.label(format!("{} (Object is not exist)", entry.name));
+                        ui.end_row();
+                        continue;
+                    };
+
+                    if entry.is_frozen {
+                        if let Some(frozen) = &entry.frozen_value {
+                            let value = Self::parsed_to_avm1_value(frozen, &mut activation);
+                            let _ = owner.set(name, value, &mut activation);
+                        }
+                    }
+
+                    let scope_str = match entry.scope {
+                        WatcherScope::Root => "_root",
+                        WatcherScope::Global => "_global",
+                    };
+                    ui.label(format!("{scope_str}.{}", entry.name));
+
+                    if let Ok(current) = owner.get(name, &mut activation) {
+                        let display = Self::format_value_safely(&current);
+
+                        let resp = ui.text_edit_singleline(&mut entry.edit_buffer);
+                        if !resp.has_focus() && !entry.is_frozen {
+                            entry.edit_buffer = display;
+                        }
+                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            let parsed = Self::parse_edit_buffer(&entry.edit_buffer);
+                            let value = Self::parsed_to_avm1_value(&parsed, &mut activation);
+                            let _ = owner.set(name, value, &mut activation);
+                        }
+                    } else {
+                        ui.label("Reading Failed");
+                    }
+
+                    let freeze_resp = ui.checkbox(&mut entry.is_frozen, "Frozen");
+                    if freeze_resp.changed() && entry.is_frozen {
+                        entry.frozen_value = Some(Self::parse_edit_buffer(&entry.edit_buffer));
+                    }
+
+                    if ui.button("Remove").clicked() {
+                        pending_remove = Some(i);
+                    }
+                    ui.end_row();
+                }
+            });
+
+        if let Some(i) = pending_remove {
+            self.favorites.remove(i);
+        }
+    }
+
+    fn is_already_favorite(&self, scope: &WatcherScope, name: &str) -> bool {
+        self.favorites
+            .iter()
+            .any(|e| e.scope == *scope && e.name == name)
+    }
+
+    fn parse_edit_buffer(input: &str) -> ParsedValue {
+        if let Ok(n) = input.parse::<f64>() {
+            ParsedValue::Number(n)
+        } else if input.eq_ignore_ascii_case("true") {
+            ParsedValue::Bool(true)
+        } else if input.eq_ignore_ascii_case("false") {
+            ParsedValue::Bool(false)
+        } else {
+            ParsedValue::String(input.to_string())
+        }
+    }
+
+    fn parsed_to_avm1_value<'gc>(
+        parsed: &ParsedValue,
+        activation: &mut Activation<'_, 'gc>,
+    ) -> Value<'gc> {
+        match parsed {
+            ParsedValue::Number(n) => Value::Number(*n),
+            ParsedValue::Bool(b) => Value::Bool(*b),
+            ParsedValue::String(s) => {
+                Value::String(AvmString::new_utf8(activation.gc(), s.as_str()))
+            }
+        }
+    }
 
     fn show_all(&mut self, ui: &mut Ui, context: &mut UpdateContext) {
         ui.horizontal(|ui| {
@@ -102,10 +232,16 @@ impl WatcherWindow {
                 }
             });
 
-        // if let Some(i) = pending_favorite {
-        //     let item = &self.all_cache[i];
-        //     self.favorites.push();
-        // }
+        if let Some(i) = pending_favorite {
+            let item = &self.all_cache[i];
+            if !self.is_already_favorite(&item.scope, &item.name) {
+                self.favorites.push(FavoriteEntry::new(
+                    item.scope.clone(),
+                    item.name.clone(),
+                    item.value_display.clone(),
+                ));
+            }
+        }
     }
 
     fn refresh_all(&mut self, context: &mut UpdateContext) {
