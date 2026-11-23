@@ -91,66 +91,74 @@ impl WatcherWindow {
             Activation::from_stub(context, ActivationIdentifier::root("[Watcher]"));
         let mut pending_remove: Option<usize> = None;
 
-        Grid::new(ui.id().with("watcher_favorite_grid"))
-            .num_columns(4)
+        egui::ScrollArea::vertical()
+            .id_salt("watcher_favorite_scroll")
             .show(ui, |ui| {
-                for (i, entry) in self.favorites.iter_mut().enumerate() {
-                    let name = AvmString::new_utf8(activation.gc(), entry.name.as_str());
+                Grid::new(ui.id().with("watcher_favorite_grid"))
+                    .num_columns(4)
+                    .show(ui, |ui| {
+                        for (i, entry) in self.favorites.iter_mut().enumerate() {
+                            let name = AvmString::new_utf8(activation.gc(), entry.name.as_str());
 
-                    let owner = match entry.scope {
-                        WatcherScope::Global => Some(activation.global_object()),
-                        WatcherScope::Root => activation
-                            .context
-                            .stage
-                            .root_clip()
-                            .and_then(|c| c.object1()),
-                    };
+                            let owner = match entry.scope {
+                                WatcherScope::Global => Some(activation.global_object()),
+                                WatcherScope::Root => activation
+                                    .context
+                                    .stage
+                                    .root_clip()
+                                    .and_then(|c| c.object1()),
+                            };
 
-                    let Some(owner) = owner else {
-                        ui.label(format!("{} (Object is not exist)", entry.name));
-                        ui.end_row();
-                        continue;
-                    };
+                            let Some(owner) = owner else {
+                                ui.label(format!("{} (Object is not exist)", entry.name));
+                                ui.end_row();
+                                continue;
+                            };
 
-                    if entry.is_frozen {
-                        if let Some(frozen) = &entry.frozen_value {
-                            let value = Self::parsed_to_avm1_value(frozen, &mut activation);
-                            let _ = owner.set(name, value, &mut activation);
+                            if entry.is_frozen {
+                                if let Some(frozen) = &entry.frozen_value {
+                                    let value = Self::parsed_to_avm1_value(frozen, &mut activation);
+                                    let _ = owner.set(name, value, &mut activation);
+                                }
+                            }
+
+                            let scope_str = match entry.scope {
+                                WatcherScope::Root => "_root",
+                                WatcherScope::Global => "_global",
+                            };
+                            ui.label(format!("{scope_str}.{}", entry.name));
+
+                            if let Ok(current) = owner.get(name, &mut activation) {
+                                let display = Self::format_value_safely(&current);
+
+                                let resp = ui.text_edit_singleline(&mut entry.edit_buffer);
+                                if !resp.has_focus() && !entry.is_frozen {
+                                    entry.edit_buffer = display;
+                                }
+                                if resp.lost_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                {
+                                    let parsed = Self::parse_edit_buffer(&entry.edit_buffer);
+                                    let value =
+                                        Self::parsed_to_avm1_value(&parsed, &mut activation);
+                                    let _ = owner.set(name, value, &mut activation);
+                                }
+                            } else {
+                                ui.label("Reading Failed");
+                            }
+
+                            let freeze_resp = ui.checkbox(&mut entry.is_frozen, "Frozen");
+                            if freeze_resp.changed() && entry.is_frozen {
+                                entry.frozen_value =
+                                    Some(Self::parse_edit_buffer(&entry.edit_buffer));
+                            }
+
+                            if ui.button("Remove").clicked() {
+                                pending_remove = Some(i);
+                            }
+                            ui.end_row();
                         }
-                    }
-
-                    let scope_str = match entry.scope {
-                        WatcherScope::Root => "_root",
-                        WatcherScope::Global => "_global",
-                    };
-                    ui.label(format!("{scope_str}.{}", entry.name));
-
-                    if let Ok(current) = owner.get(name, &mut activation) {
-                        let display = Self::format_value_safely(&current);
-
-                        let resp = ui.text_edit_singleline(&mut entry.edit_buffer);
-                        if !resp.has_focus() && !entry.is_frozen {
-                            entry.edit_buffer = display;
-                        }
-                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            let parsed = Self::parse_edit_buffer(&entry.edit_buffer);
-                            let value = Self::parsed_to_avm1_value(&parsed, &mut activation);
-                            let _ = owner.set(name, value, &mut activation);
-                        }
-                    } else {
-                        ui.label("Reading Failed");
-                    }
-
-                    let freeze_resp = ui.checkbox(&mut entry.is_frozen, "Frozen");
-                    if freeze_resp.changed() && entry.is_frozen {
-                        entry.frozen_value = Some(Self::parse_edit_buffer(&entry.edit_buffer));
-                    }
-
-                    if ui.button("Remove").clicked() {
-                        pending_remove = Some(i);
-                    }
-                    ui.end_row();
-                }
+                    });
             });
 
         if let Some(i) = pending_remove {
@@ -212,24 +220,28 @@ impl WatcherWindow {
 
         let mut pending_favorite: Option<usize> = None;
 
-        Grid::new(ui.id().with("watcher_all_grid"))
-            .num_columns(3)
+        egui::ScrollArea::vertical()
+            .id_salt("watcher_all_scroll")
             .show(ui, |ui| {
-                for (i, item) in self.all_cache.iter().enumerate() {
-                    if !self.search.is_empty() && !item.name.contains(&self.search) {
-                        continue;
-                    }
-                    let scope_str = match item.scope {
-                        WatcherScope::Root => "_root",
-                        WatcherScope::Global => "_global",
-                    };
-                    ui.label(format!("{scope_str}.{}", item.name));
-                    ui.label(&item.value_display);
-                    if ui.button("Favorite").clicked() {
-                        pending_favorite = Some(i);
-                    }
-                    ui.end_row();
-                }
+                Grid::new(ui.id().with("watcher_all_grid"))
+                    .num_columns(3)
+                    .show(ui, |ui| {
+                        for (i, item) in self.all_cache.iter().enumerate() {
+                            if !self.search.is_empty() && !item.name.contains(&self.search) {
+                                continue;
+                            }
+                            let scope_str = match item.scope {
+                                WatcherScope::Root => "_root",
+                                WatcherScope::Global => "_global",
+                            };
+                            ui.label(format!("{scope_str}.{}", item.name));
+                            ui.label(&item.value_display);
+                            if ui.button("Favorite").clicked() {
+                                pending_favorite = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
             });
 
         if let Some(i) = pending_favorite {
