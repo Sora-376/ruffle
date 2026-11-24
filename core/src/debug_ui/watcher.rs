@@ -1,11 +1,11 @@
 use crate::avm1::{Activation, ActivationIdentifier, NativeObject, Object, Value};
 use crate::context::UpdateContext;
 use crate::display_object::TDisplayObject;
-
-use egui::{Grid, TextEdit, Ui, Window};
 use ruffle_common::avm_string::AvmString;
 
-#[derive(Debug, Eq, PartialEq, Hash, Default, Copy, Clone)]
+use egui::{Grid, TextEdit, Ui, Window};
+
+#[derive(Debug, PartialEq, Default, Clone)]
 enum Panel {
     #[default]
     Favorite,
@@ -16,6 +16,13 @@ enum Panel {
 enum WatcherScope {
     Root,
     Global,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ParsedValue {
+    Number(f64),
+    Bool(bool),
+    String(String),
 }
 
 #[derive(Debug)]
@@ -35,22 +42,15 @@ struct FavoriteEntry {
 }
 
 impl FavoriteEntry {
-    fn new(scope: WatcherScope, name: String, initial_display: String) -> Self {
+    fn new(scope: WatcherScope, name: String) -> Self {
         Self {
             scope,
             name,
-            edit_buffer: initial_display,
+            edit_buffer: String::from(""),
             is_frozen: false,
             frozen_value: None,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum ParsedValue {
-    Number(f64),
-    Bool(bool),
-    String(String),
 }
 
 #[derive(Debug, Default)]
@@ -59,7 +59,6 @@ pub struct WatcherWindow {
     search: String,
     favorites: Vec<FavoriteEntry>,
     all_cache: Vec<WatcherItem>,
-    last_scan: Option<std::time::Instant>,
 }
 
 impl WatcherWindow {
@@ -68,7 +67,6 @@ impl WatcherWindow {
 
         Window::new("Watcher")
             .open(&mut keep_open)
-            .scroll([true, true])
             .show(egui_ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.open_panel, Panel::Favorite, "Favorite");
@@ -126,31 +124,27 @@ impl WatcherWindow {
                                 WatcherScope::Root => "_root",
                                 WatcherScope::Global => "_global",
                             };
+
                             ui.label(format!("{scope_str}.{}", entry.name));
 
                             if let Ok(current) = owner.get(name, &mut activation) {
                                 let display = Self::format_value_safely(&current);
+                                ui.label(display.clone());
 
-                                let resp = ui.text_edit_singleline(&mut entry.edit_buffer);
-                                if !resp.has_focus() && !entry.is_frozen {
-                                    entry.edit_buffer = display;
-                                }
-                                if resp.lost_focus()
-                                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                {
+                                ui.text_edit_singleline(&mut entry.edit_buffer);
+                                if ui.button("Save").clicked() {
                                     let parsed = Self::parse_edit_buffer(&entry.edit_buffer);
                                     let value =
                                         Self::parsed_to_avm1_value(&parsed, &mut activation);
                                     let _ = owner.set(name, value, &mut activation);
                                 }
-                            } else {
-                                ui.label("Reading Failed");
-                            }
 
-                            let freeze_resp = ui.checkbox(&mut entry.is_frozen, "Frozen");
-                            if freeze_resp.changed() && entry.is_frozen {
-                                entry.frozen_value =
-                                    Some(Self::parse_edit_buffer(&entry.edit_buffer));
+                                let freeze_resp = ui.checkbox(&mut entry.is_frozen, "Frozen");
+                                if freeze_resp.changed() && entry.is_frozen {
+                                    entry.frozen_value = Some(Self::parse_edit_buffer(&display));
+                                }
+                            } else {
+                                ui.label("Null");
                             }
 
                             if ui.button("Remove").clicked() {
@@ -209,14 +203,9 @@ impl WatcherWindow {
 
         ui.separator();
 
-        if let Some(t) = self.last_scan {
-            ui.label(format!(
-                "Last Scan: {:.1}s ago / {} item in total",
-                t.elapsed().as_secs_f32(),
-                self.all_cache.len()
-            ));
-            ui.separator();
-        }
+        ui.label(format!("Item: {}", self.all_cache.len()));
+
+        ui.separator();
 
         let mut pending_favorite: Option<usize> = None;
 
@@ -247,11 +236,8 @@ impl WatcherWindow {
         if let Some(i) = pending_favorite {
             let item = &self.all_cache[i];
             if !self.is_already_favorite(&item.scope, &item.name) {
-                self.favorites.push(FavoriteEntry::new(
-                    item.scope.clone(),
-                    item.name.clone(),
-                    item.value_display.clone(),
-                ));
+                self.favorites
+                    .push(FavoriteEntry::new(item.scope.clone(), item.name.clone()));
             }
         }
     }
@@ -279,7 +265,6 @@ impl WatcherWindow {
         }
 
         self.all_cache = result;
-        self.last_scan = Some(std::time::Instant::now());
     }
 
     fn scan_object<'gc>(
