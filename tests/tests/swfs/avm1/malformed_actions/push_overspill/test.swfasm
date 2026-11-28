@@ -3,7 +3,7 @@ Swf(
     frame_rate: 12,
     tags: [
         FileAttributes(),
-        SetBackgroundColor(0xFFFFFF),
+        SetBackgroundColor("#FFFFFF"),
 
         // Frame 1
         DoAction(InlineBytes([

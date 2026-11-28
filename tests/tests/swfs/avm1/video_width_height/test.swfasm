@@ -4,7 +4,7 @@ Swf(
     frame_rate: 12,
     tags: [
         FileAttributes(),
-        SetBackgroundColor(0xFFFFFF),
+        SetBackgroundColor("#FFFFFF"),
         DoAction(Rascal(file: "test.as")),
         DefineVideoStream(
             id: 1,

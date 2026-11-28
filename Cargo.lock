@@ -5803,9 +5803,9 @@ dependencies = [
 
 [[package]]
 name = "swfasm"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8d0e8bfd6b9045fdda3afdf04e9c717917cd6df199f5710728da715f756f8b3"
+checksum = "1b6843a7761e904e16c32acd2e6071ebb2466ba9efb51a68068dc8fecbef6d9d"
 dependencies = [
  "anyhow",
  "rascal",

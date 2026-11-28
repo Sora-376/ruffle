@@ -4,7 +4,7 @@ Swf(
     version: 15,
     tags: [
         FileAttributes(),
-        SetBackgroundColor(0xFFFFFF),
+        SetBackgroundColor("#FFFFFF"),
 
         // Places sprite 2 at depth 1, then itself at the same depth.
         DefineSprite(

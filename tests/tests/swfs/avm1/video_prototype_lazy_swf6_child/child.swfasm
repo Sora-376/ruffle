@@ -3,7 +3,7 @@ Swf(
     version: 6,
     frame_rate: 12,
     tags: [
-        SetBackgroundColor(0xFFFFFF),
+        SetBackgroundColor("#FFFFFF"),
 
         // Frame 1
         DoAction(Rascal(file: "child.as")),
